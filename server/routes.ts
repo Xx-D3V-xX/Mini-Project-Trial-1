@@ -7,7 +7,11 @@ import cors from "cors";
 import { insertUserSchema } from "@shared/schema";
 import OpenAI from "openai";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "mumbai-explorer-secret-key";
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET environment variable must be set for JWT authentication");
+}
+
+const JWT_SECRET = process.env.SESSION_SECRET;
 const SALT_ROUNDS = 10;
 
 // JWT middleware
@@ -272,19 +276,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { duration, travelers, interests, requirements } = req.body;
 
       if (!duration || !interests || interests.length === 0) {
-        return res.status(400).json({ message: "Missing required fields" });
+        return res.status(400).json({ message: "Missing required fields: duration and interests are required" });
       }
 
       const pois = await storage.getAllPOIs();
 
       // Check if OpenAI is configured
       if (!process.env.OPENAI_API_KEY) {
-        // Fallback to rule-based generation if no OpenAI key
+        console.log("[Itinerary] Using fallback rule-based generation (no OPENAI_API_KEY configured)");
+        
         const filteredPOIs = pois.filter((poi) =>
           interests.some((interest: string) =>
             poi.category.toLowerCase().includes(interest.toLowerCase().split(" ")[0])
           )
         );
+
+        if (filteredPOIs.length === 0) {
+          console.warn(`[Itinerary] No POIs matched interests: ${interests.join(", ")}`);
+          return res.status(400).json({ message: "No attractions found matching your interests. Try different categories." });
+        }
 
         const days = parseInt(duration);
         const poisPerDay = Math.ceil(filteredPOIs.length / days);
@@ -294,22 +304,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const startIdx = (day - 1) * poisPerDay;
           const dayPOIs = filteredPOIs.slice(startIdx, startIdx + poisPerDay);
 
-          itinerary.push({
-            day,
-            title: `Day ${day}: ${interests[0] || "Exploration"}`,
-            pois: dayPOIs.map((poi) => ({
-              name: poi.title,
-              description: poi.description,
-              duration: poi.duration,
-              imageUrl: poi.imageUrl,
-            })),
-          });
+          if (dayPOIs.length > 0) {
+            itinerary.push({
+              day,
+              title: `Day ${day}: ${interests[0] || "Exploration"}`,
+              pois: dayPOIs.map((poi) => ({
+                name: poi.title,
+                description: poi.description,
+                duration: poi.duration,
+                imageUrl: poi.imageUrl,
+              })),
+            });
+          }
         }
 
+        console.log(`[Itinerary] Generated ${itinerary.length}-day fallback itinerary with ${filteredPOIs.length} POIs`);
         return res.json(itinerary);
       }
 
       // OpenAI-powered generation
+      console.log(`[Itinerary] Generating AI-powered itinerary: ${duration} days, interests: ${interests.join(", ")}`);
+      
       const openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
       });
@@ -360,11 +375,30 @@ Create a balanced itinerary with 3-4 attractions per day, considering travel tim
 
       // Handle different response structures
       const itinerary = parsedResponse.itinerary || parsedResponse.days || parsedResponse;
+      const finalItinerary = Array.isArray(itinerary) ? itinerary : [];
 
-      res.json(Array.isArray(itinerary) ? itinerary : []);
+      console.log(`[Itinerary] Successfully generated AI itinerary with ${finalItinerary.length} days`);
+      res.json(finalItinerary);
     } catch (error: any) {
-      console.error("Itinerary generation error:", error);
-      res.status(500).json({ message: error.message || "Failed to generate itinerary" });
+      console.error("[Itinerary] Generation error:", error.message || error);
+      
+      // Provide more specific error messages
+      if (error.code === 'insufficient_quota') {
+        return res.status(500).json({ 
+          message: "AI service quota exceeded. Please try again later or contact support." 
+        });
+      }
+      
+      if (error.code === 'invalid_api_key') {
+        console.error("[Itinerary] Invalid OpenAI API key configured");
+        return res.status(500).json({ 
+          message: "AI service configuration error. Please contact support." 
+        });
+      }
+
+      res.status(500).json({ 
+        message: "Failed to generate itinerary. Please try again or contact support if the issue persists." 
+      });
     }
   });
 
