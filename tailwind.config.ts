@@ -87,6 +87,10 @@ export default {
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },
+      aspectRatio: {
+        'video': '16 / 9',
+        '4/3': '4 / 3',
+      },
       keyframes: {
         "accordion-down": {
           from: { height: "0" },
