@@ -5,7 +5,7 @@ import { Features } from "@/components/Features";
 export default function Landing() {
   return (
     <div className="min-h-screen">
-      <Header isLoggedIn={false} />
+      <Header />
       <Hero />
       <Features />
     </div>

@@ -20,9 +20,10 @@ const interestOptions = [
 
 interface ItineraryFormProps {
   onGenerate?: (data: any) => void;
+  isGenerating?: boolean;
 }
 
-export function ItineraryForm({ onGenerate }: ItineraryFormProps) {
+export function ItineraryForm({ onGenerate, isGenerating }: ItineraryFormProps) {
   const [duration, setDuration] = useState("3");
   const [travelers, setTravelers] = useState("2");
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
@@ -138,11 +139,11 @@ export function ItineraryForm({ onGenerate }: ItineraryFormProps) {
         type="submit"
         size="lg"
         className="w-full"
-        disabled={selectedInterests.length === 0}
+        disabled={selectedInterests.length === 0 || isGenerating}
         data-testid="button-generate"
       >
         <Sparkles className="mr-2 h-5 w-5" />
-        Generate AI Itinerary
+        {isGenerating ? "Generating..." : "Generate AI Itinerary"}
       </Button>
     </form>
   );

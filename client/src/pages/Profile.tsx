@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Header } from "@/components/Header";
 import { ProfileStats } from "@/components/ProfileStats";
 import { SavedItineraries } from "@/components/SavedItineraries";
@@ -6,62 +5,91 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, MapPin } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
-const mockItineraries = [
-  {
-    id: "1",
-    title: "Weekend Heritage Tour",
-    date: "Dec 15, 2024",
-    days: 2,
-    locations: 8,
-  },
-  {
-    id: "2",
-    title: "Mumbai Food Trail",
-    date: "Nov 28, 2024",
-    days: 1,
-    locations: 6,
-  },
-  {
-    id: "3",
-    title: "Complete Mumbai Experience",
-    date: "Oct 10, 2024",
-    days: 5,
-    locations: 20,
-  },
-];
+interface ProfileData {
+  user: { id: string; username: string };
+  stats: {
+    tripsCount: number;
+    placesVisited: number;
+    savedCount: number;
+  };
+}
 
-const mockHistory = [
-  {
-    id: "1",
-    name: "Gateway of India",
-    date: "Dec 1, 2024",
-    category: "Heritage",
-  },
-  {
-    id: "2",
-    name: "Marine Drive",
-    date: "Nov 25, 2024",
-    category: "Heritage",
-  },
-  {
-    id: "3",
-    name: "Elephanta Caves",
-    date: "Nov 20, 2024",
-    category: "Heritage",
-  },
-];
+interface Itinerary {
+  id: string;
+  title: string;
+  date: string;
+  days: number;
+  locations: number;
+}
+
+interface VisitHistoryItem {
+  id: string;
+  name: string;
+  date: string;
+  category: string;
+}
 
 export default function Profile() {
-  const [itineraries, setItineraries] = useState(mockItineraries);
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  const { data: profile, isLoading: profileLoading } = useQuery<ProfileData>({
+    queryKey: ["/api/profile"],
+  });
+
+  const { data: itineraries, isLoading: itinerariesLoading } = useQuery<Itinerary[]>({
+    queryKey: ["/api/profile/itineraries"],
+  });
+
+  const { data: history, isLoading: historyLoading } = useQuery<VisitHistoryItem[]>({
+    queryKey: ["/api/profile/history"],
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("DELETE", `/api/profile/itineraries/${id}`, undefined);
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile/itineraries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({
+        title: "Itinerary deleted",
+        description: "Itinerary has been removed from your profile",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Delete failed",
+        description: error.message || "Failed to delete itinerary",
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleDelete = (id: string) => {
-    setItineraries(itineraries.filter((i) => i.id !== id));
+    deleteMutation.mutate(id);
   };
+
+  if (profileLoading || itinerariesLoading || historyLoading) {
+    return (
+      <div className="min-h-screen">
+        <Header />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-lg" data-testid="loading-profile">Loading profile...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
-      <Header isLoggedIn={true} onLogout={() => console.log("Logout")} />
+      <Header />
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 py-8">
         <div className="space-y-8">
@@ -77,11 +105,11 @@ export default function Profile() {
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             <div className="lg:col-span-1">
               <ProfileStats
-                username="Mumbai Explorer"
+                username={profile?.user.username || user?.username || "Explorer"}
                 memberSince="Jan 2024"
-                tripsCount={itineraries.length}
-                placesVisited={23}
-                savedCount={12}
+                tripsCount={profile?.stats.tripsCount || 0}
+                placesVisited={profile?.stats.placesVisited || 0}
+                savedCount={profile?.stats.savedCount || 0}
               />
             </div>
 
@@ -98,7 +126,7 @@ export default function Profile() {
 
                 <TabsContent value="itineraries">
                   <SavedItineraries
-                    itineraries={itineraries}
+                    itineraries={itineraries || []}
                     onDelete={handleDelete}
                     onView={(id) => console.log(`View itinerary ${id}`)}
                   />
@@ -107,31 +135,37 @@ export default function Profile() {
                 <TabsContent value="history">
                   <div className="space-y-4">
                     <h3 className="text-xl font-semibold">Visit History</h3>
-                    <div className="space-y-3">
-                      {mockHistory.map((visit) => (
-                        <Card
-                          key={visit.id}
-                          className="p-4 hover-elevate transition-all"
-                          data-testid={`card-visit-${visit.id}`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                                <MapPin className="h-5 w-5 text-primary" />
-                              </div>
-                              <div>
-                                <h4 className="font-semibold">{visit.name}</h4>
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                                  <Calendar className="h-3 w-3" />
-                                  <span>{visit.date}</span>
+                    {history && history.length > 0 ? (
+                      <div className="space-y-3">
+                        {history.map((visit) => (
+                          <Card
+                            key={visit.id}
+                            className="p-4 hover-elevate transition-all"
+                            data-testid={`card-visit-${visit.id}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                  <MapPin className="h-5 w-5 text-primary" />
+                                </div>
+                                <div>
+                                  <h4 className="font-semibold">{visit.name}</h4>
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                                    <Calendar className="h-3 w-3" />
+                                    <span>{visit.date}</span>
+                                  </div>
                                 </div>
                               </div>
+                              <Badge variant="outline">{visit.category}</Badge>
                             </div>
-                            <Badge variant="outline">{visit.category}</Badge>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        No visit history yet. Start exploring Mumbai!
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
               </Tabs>

@@ -2,15 +2,13 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./ThemeToggle";
 import { MapPin, User } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
-interface HeaderProps {
-  isLoggedIn?: boolean;
-  onLogout?: () => void;
-}
-
-export function Header({ isLoggedIn = false, onLogout }: HeaderProps) {
+export function Header() {
   const [location] = useLocation();
   const isLanding = location === "/";
+  const { user, logout } = useAuth();
+  const isLoggedIn = !!user;
 
   return (
     <header
@@ -60,7 +58,7 @@ export function Header({ isLoggedIn = false, onLogout }: HeaderProps) {
                 </Link>
                 <Button
                   variant="outline"
-                  onClick={onLogout}
+                  onClick={logout}
                   data-testid="button-logout"
                   className="hidden md:inline-flex"
                 >

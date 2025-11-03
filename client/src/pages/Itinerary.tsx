@@ -2,95 +2,81 @@ import { useState } from "react";
 import { Header } from "@/components/Header";
 import { ItineraryForm } from "@/components/ItineraryForm";
 import { ItineraryDisplay } from "@/components/ItineraryDisplay";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
-const mockGeneratedItinerary = [
-  {
-    day: 1,
-    title: "Heritage & Iconic Landmarks",
-    pois: [
-      {
-        name: "Gateway of India",
-        description: "Start your Mumbai journey at this iconic monument overlooking the Arabian Sea, built during British Raj",
-        duration: "1 hour",
-      },
-      {
-        name: "Taj Mahal Palace Hotel",
-        description: "Admire the architecture and history of this legendary luxury hotel next to Gateway",
-        duration: "30 mins",
-      },
-      {
-        name: "Chhatrapati Shivasu Terminus",
-        description: "UNESCO World Heritage Site featuring stunning Victorian Gothic architecture",
-        duration: "1 hour",
-      },
-      {
-        name: "Marine Drive Sunset",
-        description: "Evening stroll along Queen's Necklace with breathtaking sunset views",
-        duration: "2 hours",
-      },
-    ],
-  },
-  {
-    day: 2,
-    title: "Food & Markets Adventure",
-    pois: [
-      {
-        name: "Crawford Market",
-        description: "Explore bustling colonial-era market with fresh produce, spices, and local goods",
-        duration: "2 hours",
-      },
-      {
-        name: "Mohammad Ali Road",
-        description: "Indulge in famous street food - kebabs, biryani, and traditional sweets",
-        duration: "2 hours",
-      },
-      {
-        name: "Chor Bazaar",
-        description: "Hunt for antiques, vintage items, and unique finds in this thieves' market",
-        duration: "1.5 hours",
-      },
-    ],
-  },
-  {
-    day: 3,
-    title: "Nature & Spirituality",
-    pois: [
-      {
-        name: "Elephanta Caves",
-        description: "Ferry ride to ancient rock-cut temples with impressive Hindu sculptures",
-        duration: "4 hours",
-      },
-      {
-        name: "Haji Ali Dargah",
-        description: "Visit iconic mosque on causeway, especially beautiful at sunset",
-        duration: "1.5 hours",
-      },
-      {
-        name: "Worli Sea Face",
-        description: "Relax by the sea with views of Bandra-Worli Sea Link",
-        duration: "1 hour",
-      },
-    ],
-  },
-];
+interface ItineraryDay {
+  day: number;
+  title: string;
+  pois: {
+    name: string;
+    description: string;
+    duration: string;
+  }[];
+}
 
 export default function Itinerary() {
-  const [generatedItinerary, setGeneratedItinerary] = useState<typeof mockGeneratedItinerary | null>(null);
+  const [generatedItinerary, setGeneratedItinerary] = useState<ItineraryDay[] | null>(null);
+  const { toast } = useToast();
+
+  const generateMutation = useMutation({
+    mutationFn: async (formData: any) => {
+      const response = await apiRequest("POST", "/api/itinerary/generate", formData);
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      setGeneratedItinerary(data);
+      toast({
+        title: "Itinerary generated!",
+        description: "Your personalized Mumbai itinerary is ready",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Generation failed",
+        description: error.message || "Failed to generate itinerary",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!generatedItinerary) return;
+      const response = await apiRequest("POST", "/api/profile/itineraries", {
+        title: generatedItinerary[0]?.title || "My Mumbai Trip",
+        days: generatedItinerary.length,
+        data: generatedItinerary,
+      });
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Itinerary saved!",
+        description: "You can view it in your profile",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Save failed",
+        description: error.message || "Failed to save itinerary",
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleGenerate = (data: any) => {
-    console.log("Generating itinerary with:", data);
-    setTimeout(() => {
-      setGeneratedItinerary(mockGeneratedItinerary);
-    }, 1000);
+    generateMutation.mutate(data);
   };
 
   const handleSave = () => {
-    console.log("Itinerary saved to profile");
+    saveMutation.mutate();
   };
 
   return (
     <div className="min-h-screen">
-      <Header isLoggedIn={true} onLogout={() => console.log("Logout")} />
+      <Header />
 
       <div className="max-w-3xl mx-auto px-4 md:px-6 lg:px-8 py-8">
         <div className="space-y-8">
@@ -104,11 +90,15 @@ export default function Itinerary() {
           </div>
 
           {!generatedItinerary ? (
-            <ItineraryForm onGenerate={handleGenerate} />
+            <ItineraryForm
+              onGenerate={handleGenerate}
+              isGenerating={generateMutation.isPending}
+            />
           ) : (
             <ItineraryDisplay
               itinerary={generatedItinerary}
               onSave={handleSave}
+              isSaving={saveMutation.isPending}
             />
           )}
         </div>

@@ -25,9 +25,10 @@ interface DayPlan {
 interface ItineraryDisplayProps {
   itinerary: DayPlan[];
   onSave?: () => void;
+  isSaving?: boolean;
 }
 
-export function ItineraryDisplay({ itinerary, onSave }: ItineraryDisplayProps) {
+export function ItineraryDisplay({ itinerary, onSave, isSaving }: ItineraryDisplayProps) {
   const handleSave = () => {
     console.log("Saving itinerary");
     onSave?.();
@@ -45,9 +46,9 @@ export function ItineraryDisplay({ itinerary, onSave }: ItineraryDisplayProps) {
               {itinerary.length} days of curated experiences
             </p>
           </div>
-          <Button onClick={handleSave} data-testid="button-save-itinerary">
+          <Button onClick={handleSave} disabled={isSaving} data-testid="button-save-itinerary">
             <Save className="mr-2 h-5 w-5" />
-            Save to Profile
+            {isSaving ? "Saving..." : "Save to Profile"}
           </Button>
         </div>
       </Card>
