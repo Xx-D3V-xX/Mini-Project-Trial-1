@@ -1,0 +1,127 @@
+You are a senior full-stack engineer working on a Node 20 + Express (TypeScript) + Vite React 18 (TypeScript) monorepo that currently has:
+- server/: Express API, JWT auth, itinerary generation, POI listing, in-memory storage
+- client/: React app with Wouter/TanStack Query/shadcn UI
+- shared/: Drizzle ORM schema + Zod types (not wired to a real DB yet)
+
+GOAL: Implement the features below while preserving current endpoints and UI flows where possible. Migrate from OpenAI to Google Gemini. Cover and harden all partially implemented features (validation, security, error/health, observability). Produce production-ready code with clear comments, new files, and Drizzle migrations.
+
+--------------------------------
+PRIMARY FEATURES TO IMPLEMENT
+--------------------------------
+1) Persistent PostgreSQL database (Drizzle ORM):
+   - Use Postgres with Drizzle (pg driver). Read DATABASE_URL from env.
+   - Create a /server/db client (singleton) and repositories for each domain: users, pois, itineraries, visitHistory, chats, surveys, admins, analyticsEvents.
+   - Add Drizzle migrations for these tables (snake_case):
+     users(id uuid pk, email unique, name, password_hash, created_at)
+     admins(id uuid pk, email unique, name, password_hash, created_at, role default 'superadmin'|'editor')
+     pois(id uuid pk, title, description, category, duration_minutes, difficulty, image_url, created_at, updated_at)
+     itineraries(id uuid pk, user_id fk, title, days int, data jsonb, created_at)
+     visit_history(id uuid pk, user_id fk, poi_id fk, visited_at timestamptz)
+     chats(id uuid pk, user_id fk nullable, session_id text, model_provider text, created_at)
+     chat_messages(id uuid pk, chat_id fk, role text, content jsonb, created_at)
+     surveys(id uuid pk, user_id fk, answers jsonb, created_at)
+     analytics_events(id uuid pk, user_id fk nullable, kind text, payload jsonb, created_at)
+   - Replace all in-memory writes/reads with repository calls. Keep returned JSON shapes backward-compatible with current client.
+
+2) Route planning:
+   - Server endpoint: POST /api/routes/plan with body { waypoints: [{lat, lng}, ...], mode: 'walking'|'driving'|'cycling' }.
+   - Integrate OpenRouteService (preferred) using env OPENROUTESERVICE_API_KEY. Fallback to OSRM public if ORS key missing.
+   - Return { distance_m, duration_s, polyline, legs[] }. Use polyline-encoded path.
+   - Client: new page /map and a compact map widget on /itinerary to visualize selected day’s route. Use Leaflet + react-leaflet. Render polyline + markers + distance/duration summary.
+
+3) Mood-based landing:
+   - Server endpoint: POST /api/recommendations/mood { mood: string }.
+   - Map common moods (chill, adventurous, romantic, foodie, spiritual, artsy, family, nightlife) to POI categories; optionally refine with Gemini (see #6) when GEMINI_API_KEY present.
+   - Return top N POIs with short rationale.
+   - Client: Landing modal (or first screen) with mood chips → shows recommended POIs and “Start a plan” CTA.
+
+4) Onboarding survey:
+   - Server: 
+     GET /api/survey/questions (static JSON describing multi-step survey),
+     POST /api/survey/response { answers } ⇒ upsert surveys row for user, merge into user profile prefs.
+   - Client: /onboarding multi-step wizard (interests, budget, time-of-day, mobility constraints). Save to server; use prefs to bias itinerary generation and POI list.
+
+5) Chatbot:
+   - Server: 
+     POST /api/chat/start ⇒ returns { chatId, sessionId }
+     POST /api/chat/respond { chatId, messages:[{role:'user'|'assistant',content:string}], context?:{currentItineraryId?, currentDay?} }
+       Uses Google Gemini (see #6) to respond; logs to chats + chat_messages.
+     GET /api/chat/:chatId/history
+   - Client: Floating chat widget and full page /chat. Persist chatId in localStorage per user. Show typing state, error toasts, and “use suggestion” buttons that trigger itinerary tweaks.
+
+6) Switch to Google Gemini API (replace OpenAI):
+   - Use @google/generative-ai with env GEMINI_API_KEY.
+   - Two server utilities:
+     - generateItineraryGemini(preferences, pois, weather?, constraints?) → JSON strictly validated by Zod schema (days[], each day has ordered stops with POI ids, time windows, short notes).
+     - chatWithGemini(messages[], systemPurpose) → assistant text. Enforce JSON mode when requesting structured plans.
+   - Update POST /api/itinerary/generate to use Gemini first; fallback to rule-based if key missing or model fails.
+
+7) Weather-aware suggestions:
+   - Server: GET /api/weather/forecast?city=... (default Mumbai). Use OpenWeatherMap One Call (env OPENWEATHER_API_KEY). 
+   - Modify itinerary generation: when weather is extreme (rain/heat index thresholds), reorder outdoor/indoor POIs. Return reasons + badges.
+   - Client: Show weather panel on /itinerary and badges (e.g., “Rain-friendly”, “Heat-safe”) on each recommended stop.
+
+8) Admin panel / POI CMS + Analytics:
+   - Auth: Separate /api/admin/login (email/password against admins table) issuing admin JWT (distinct secret or JWT claim role=admin). Middleware requireAdmin.
+   - CRUD:
+     GET/POST/PUT/DELETE /api/admin/pois (list/search with pagination and filters, upsert with full validation).
+     GET /api/admin/users (list basic metrics), GET /api/admin/itineraries (summaries).
+   - Analytics:
+     - Capture client events: POST /api/analytics { kind, payload } on key actions (mood_select, itinerary_generate, save_itinerary, route_plan, chat_message).
+     - Dashboard: /admin/analytics with metrics: DAU/WAU, itinerary success rate, top POIs, mood distribution, weather-adjusted plans, average route length/time. Use Recharts.
+   - Client: New /admin routes (login, POIs CMS CRUD with forms and table, Analytics dashboard). Hide behind admin auth gate.
+
+--------------------------------
+HARDEN & COMPLETE PARTIALS
+--------------------------------
+- Validation: Use Zod on all request bodies/query; centralize a validate() middleware to parse schemas.
+- Security: helmet, express-rate-limit for auth and AI endpoints, tighten CORS to known origins in production, sanitize inputs. Hash passwords with bcrypt.
+- Errors: Central error handler returning { error:{ code, message, details? } }. Never leak stack in prod.
+- Health/Readiness: GET /api/health (ok), GET /api/ready (DB ping).
+- Logging/Observability: pino/pino-http with requestId, latency; log AI errors and route planner fallbacks; minimal audit log for admin actions into analytics_events.
+- Config: Validate required envs on boot (SESSION_SECRET, DATABASE_URL; optional: GEMINI_API_KEY, OPENROUTESERVICE_API_KEY, OPENWEATHER_API_KEY). Provide .env.example.
+- Migrations/Seeding: Drizzle kit scripts for generate/migrate; seed script to import existing in-memory POIs and add a few admin users.
+- Back-compat: Keep existing auth/login/register/itinerary/pois routes compatible for the current client; add new fields non-breaking.
+
+--------------------------------
+FRONTEND CHANGES (React + TS)
+--------------------------------
+- Routing: add /onboarding, /map, /chat, /admin/login, /admin/pois, /admin/analytics.
+- Components:
+  - MoodLanding: chip selector → calls /api/recommendations/mood.
+  - OnboardingWizard: controlled steps with Zod validation per step; POST answers.
+  - MapView (react-leaflet): displays markers for current day’s POIs and route polyline from /api/routes/plan; summary card (distance/duration).
+  - ChatWidget + ChatPage: calls /api/chat/start and /api/chat/respond; shows history with streaming simulation (progressive append).
+  - WeatherPanel: shows 3-5 day forecast; hint banner when itinerary adjusted by weather.
+  - Admin: AdminLoginPage, AdminPOIsPage (table, search, edit drawer, image URL preview), AdminAnalyticsPage (charts: line DAU/WAU, bar top POIs, pie moods, cards: totals).
+- State: Extend AuthContext to track admin session (separate key). Add Query keys for survey, mood, routes, chat, weather, admin entities.
+- UX polish: loading states, error toasts, disabled buttons while pending. Respect existing design system (shadcn/Tailwind).
+
+--------------------------------
+ENV & SCRIPTS
+--------------------------------
+- Add .env.example with:
+  SESSION_SECRET=change-me
+  DATABASE_URL=postgresql://user:pass@host:port/db
+  GEMINI_API_KEY=...
+  OPENROUTESERVICE_API_KEY=...
+  OPENWEATHER_API_KEY=...
+- package.json scripts (server):
+  "db:gen": "drizzle-kit generate",
+  "db:migrate": "drizzle-kit migrate",
+  "db:seed": "ts-node server/scripts/seed.ts"
+- Ensure dev server still serves client in dev and static in prod.
+
+--------------------------------
+ACCEPTANCE CHECKS
+--------------------------------
+- After setting envs and running migrations + seed, I can:
+  1) Register/login; complete onboarding; pick a mood; see POI recs with rationales.
+  2) Generate itinerary with Gemini (or rule-based fallback); weather panel visible; indoor/outdoor adjustments explained.
+  3) Open MapView for a selected day; see route with distance/duration; switching transport mode re-plans route.
+  4) Chat with assistant; messages persist; assistant can reference current itinerary context.
+  5) Save/delete itineraries; profile stats update; visit history records.
+  6) Admin login → POI CMS CRUD works; Analytics shows live counters/graphs fed by analytics_events.
+  7) /api/health and /api/ready return ok; logs include requestId and latency; rate limiting active on auth/AI.
+
+Please implement all code changes, create necessary files/folders, write Drizzle migrations, and update the client routes/components accordingly, with concise comments explaining non-obvious logic. Keep PR-style atomic commits per domain (DB wiring, routes, client pages, admin, analytics).

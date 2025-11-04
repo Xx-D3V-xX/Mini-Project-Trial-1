@@ -1,0 +1,125 @@
+Project merge task — DO NOT overwrite files without asking.
+
+Goal
+- Use the backend code and API routes from the uploaded `backend.zip`.
+- Integrate that backend with the frontend, UI and components from `MumbaiMergeFin.zip`.
+- Produce one working project that runs both client and server (dev: frontend via Vite, backend via Node/TS).
+
+Important safety & backup
+1. Immediately create a backup/copy of both uploaded projects (duplicate workspace or copy folders `backend_backup/` and `frontend_backup/`) before making changes.
+2. If any file from the destination project would be replaced, create a new file with suffix `.merged.tsx/.merged.ts/.bak` instead of deleting original. Ask before destructive replacements.
+
+Assumptions (if different, please confirm but continue anyway)
+- Frontend is React + Vite + TypeScript under a `client` or similar folder.
+- Backend is Node/TypeScript under a `server` folder with routes in `routes.ts` / `index.ts`.
+- Auth uses JWT and profile endpoints exist or can be mocked.
+- If precise paths differ, place backend into `/server` and frontend into `/client`.
+
+Step-by-step tasks
+
+A — Set up project structure
+1. Create a single root workspace with these folders:
+   - `/client`  ← contents of MumbaiMergeFin.zip frontend
+   - `/server`  ← contents of backend.zip
+   - `/shared`  ← (optional) common utilities or types moved from backend if frontend needs them
+2. Copy backend `package.json` scripts into root `package.json` or keep separate scripts inside `/client/package.json` and `/server/package.json`. Do NOT delete existing scripts.
+
+B — Connect frontend to backend
+1. Identify backend base URL (e.g., `http://localhost:5000` or from backend `.env`). If backend uses a different port, expose that.
+2. In the frontend API client (axios/fetch wrapper), update baseURL to point to the local backend (use environment variable VITE_API_URL or REACT_APP_API_URL). Add fallback:
+   - If `process.env.VITE_API_URL` missing, use `http://localhost:5000`.
+3. Ensure CORS is enabled on backend: add `Access-Control-Allow-Origin` for dev or configure cors middleware.
+
+C — Auth & token persistence
+1. Use backend auth endpoints from backend.zip (`/api/auth/login`, `/api/auth/register`, `/api/auth/validate`).
+2. Implement/verify AuthContext or equivalent in frontend:
+   - On login, save JWT to `localStorage` as `token`.
+   - On app load, read token and validate with `/api/auth/validate` or `GET /api/profile`.
+   - Protected routes (e.g., `/profile`, `/itinerary/generate`) must check auth state and redirect to `/login` if unauthenticated.
+3. Ensure after login user is redirected to `/explore` (not looped back to login).
+
+D — Routes & pages integration
+1. Keep frontend routes from MumbaiMergeFin.zip intact. Add or update routes so:
+   - `/` shows landing (from frontend)
+   - `/explore` shows explore trails (frontend)
+   - `/profile` shows server-backed profile data (GET `/api/profile`, GET `/api/profile/history`, GET `/api/profile/itineraries`)
+   - `/itinerary/generate` posts to `/api/itinerary/generate`
+2. If frontend already contains components for these routes, wire them to use backend API responses.
+
+E — Data contracts & mocks
+1. If backend returns different JSON shapes than frontend expects, create small adapter functions in `/client/src/lib/apiAdapter.ts` to convert backend shape → frontend shape.
+2. Add mock JSON files under `/client/src/mocks/` for quick UI testing when backend endpoint is missing. The adapter should prefer real API, fallback to mocks.
+
+F — Fix missing images in cards
+1. Update card component to use `poi.imageUrl || fallbackUrl`.
+2. Add `onError` handler on `<img>` to set fallback if 404:
+   ```js
+   <img src={poi.imageUrl || fallbackUrl} onError={(e)=> e.currentTarget.src = fallbackUrl} alt={poi.name} />
+Add public/assets/placeholder.png or use https://source.unsplash.com/featured/?mumbai.
+
+G — Dev scripts & run commands
+
+Ensure these scripts exist:
+
+/client/package.json: "dev": "vite"
+
+/server/package.json: "dev": "ts-node-dev --respawn --transpile-only server/index.ts" (or equivalent)
+
+At root, add convenience script (optional):
+
+json
+Copy code
+"scripts": {
+  "dev:client": "npm run dev --prefix client",
+  "dev:server": "npm run dev --prefix server",
+  "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\""
+}
+(If you add this, also ensure concurrently is added as a devDependency.)
+
+H — CORS / Environment
+
+Place .env or .env.local in root with VITE_API_URL=http://localhost:5000 (client reads VITE_ prefix).
+
+Ensure backend reads any required DB env; if DB not present, enable an in-memory mock for dev.
+
+I — Acceptance Criteria (must pass)
+
+Running npm run dev (or start both client & server) launches:
+
+frontend at http://localhost:5173 (or Vite default)
+
+backend at http://localhost:5000
+
+Landing page / displays from frontend and does not forcibly redirect to login on reload.
+
+Login works via backend auth and token persists across reloads; after login user is taken to /explore.
+
+/profile fetches and displays real data from backend (or mock when backend returns 404).
+
+/itinerary/generate can call backend /api/itinerary/generate and shows returned itinerary and allows saving to /api/profile/itineraries.
+
+Cards show images or placeholder if image missing.
+
+No console errors about CORS or missing endpoints in normal usage.
+
+J — Testing Checklist (quick)
+
+ Backup created
+
+ Client and Server installed (npm install in both)
+
+ Server runs and prints listening port
+
+ Client runs and points to server (VITE_API_URL)
+
+ Login flow (valid & invalid credentials)
+
+ Profile page loads data
+
+ Generate itinerary works and can save
+
+ Image fallbacks are visible for missing images
+
+K — If any ambiguity or conflicting files (same path in both zips)
+
+Create <filename>.merged alongside originals and don’t overwrite. Report conflict and ask for confirmation.
